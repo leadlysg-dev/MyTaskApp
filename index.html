@@ -113,7 +113,7 @@
   .due.set.today, .due.set.soon { background:var(--school-soft); border-color:transparent; color:var(--school); }
   .due.set.later { background:var(--bg); border-color:transparent; color:var(--ink); }
   .due .x { font-size:13px; opacity:.6; }
-  .due input[type=date] { position:absolute; inset:0; opacity:0; width:100%; height:100%; cursor:pointer; }
+  .due input[type=date] { position:absolute; left:0; bottom:0; width:1px; height:1px; opacity:0; pointer-events:none; }
   .del { flex-shrink:0; background:none; border:none; cursor:pointer; color:var(--muted); font-size:18px; padding:2px 5px; border-radius:7px; }
   .del:hover { color:var(--red); background:var(--bg); }
   .empty { text-align:center; color:var(--muted); padding:34px 16px; font-size:14px; line-height:1.6; border:1.5px dashed var(--line); border-radius:14px; }
@@ -355,10 +355,10 @@ function rowEl(t){
     meta.appendChild(chip);
     if(t.category!=='Unsorted'){ const p=document.createElement('span'); p.className='prio '+t.priority; p.innerHTML='<span class="pd"></span>'+t.priority; meta.appendChild(p); }
     const inf=dueInfo(t.dueDate);
-    const due=document.createElement('label'); due.className='due'+(t.dueDate?' set '+inf.state:'');
+    const due=document.createElement('button'); due.type='button'; due.className='due'+(t.dueDate?' set '+inf.state:'');
     due.innerHTML='📅 '+inf.label+(t.dueDate?' <span class="x" title="Clear">×</span>':'');
     const di=document.createElement('input'); di.type='date'; di.value=t.dueDate||''; di.onchange=e=>setDue(t.id,e.target.value); due.appendChild(di);
-    if(t.dueDate){ due.querySelector('.x').onclick=e=>{ e.preventDefault(); e.stopPropagation(); setDue(t.id,''); }; }
+    due.onclick=e=>{ if(e.target.classList.contains('x')){ e.preventDefault(); e.stopPropagation(); setDue(t.id,''); return; } try{ di.showPicker(); }catch(_){ di.focus(); } };
     meta.appendChild(due); body.appendChild(meta);
   }
   const delBtn=document.createElement('button'); delBtn.className='del'; delBtn.innerHTML='×'; delBtn.title='Delete'; delBtn.onclick=()=>del(t.id);
