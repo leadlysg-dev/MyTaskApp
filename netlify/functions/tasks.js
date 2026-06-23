@@ -43,6 +43,18 @@ exports.handler = async (event) => {
       const doc = await getDoc();
       info.connection = 'OK';
       info.spreadsheetTitle = doc.title;
+      // Write test on an isolated _diag tab (does not touch your real data)
+      try {
+        const diag = await getOrCreate(doc, '_diag', ['ts', 'note']);
+        await diag.clearRows();
+        await diag.addRows([{ ts: new Date().toISOString(), note: 'write-test' }]);
+        const rows = await diag.getRows();
+        info.writeTest = 'OK';
+        info.writeRowsNow = rows.length;
+      } catch (we) {
+        info.writeTest = 'FAILED';
+        info.writeError = String((we && we.message) || we);
+      }
     } catch (e) {
       info.connection = 'FAILED';
       info.connectionError = String((e && e.message) || e);
