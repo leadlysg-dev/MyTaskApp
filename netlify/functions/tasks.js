@@ -3,11 +3,11 @@
 // GET  -> { pinned, context, glossary, tasks, log }
 // POST -> overwrites all three from the body
 // ?debug=1 -> env + connection + write test
-const VERSION = 'v10';
+const VERSION = 'v12';
 
 const { JWT } = require('google-auth-library');
 const SHEET_ID = process.env.GOOGLE_SHEET_ID || '';
-const TASK_HEADER = ['id', 'text', 'category', 'priority', 'done', 'dueDate', 'createdAt'];
+const TASK_HEADER = ['id', 'text', 'category', 'priority', 'done', 'dueDate', 'createdAt', 'details'];
 const LOG_HEADER = ['text', 'category', 'dueDate', 'completedAt'];
 
 async function getToken() {
@@ -76,7 +76,8 @@ exports.handler = async (event) => {
     if (event.httpMethod === 'GET') {
       const tasks = rowsToObjs(await readTab(token, 'Tasks'), TASK_HEADER).filter(o => o.id).map(o => ({
         id: o.id, text: o.text || '', category: o.category || 'Unsorted', priority: o.priority || 'medium',
-        done: String(o.done).toLowerCase() === 'true', dueDate: o.dueDate || '', createdAt: o.createdAt || ''
+        done: String(o.done).toLowerCase() === 'true', dueDate: o.dueDate || '', createdAt: o.createdAt || '',
+        details: (() => { try { return JSON.parse(o.details || '[]'); } catch (e) { return []; } })()
       }));
       const metaRows = await readTab(token, 'Meta');
       const meta = {}; metaRows.slice(1).forEach(r => { if (r[0]) meta[r[0]] = r[1]; });
@@ -90,7 +91,7 @@ exports.handler = async (event) => {
     if (event.httpMethod === 'POST') {
       const { pinned = '', context = '', glossary = [], tasks = [], log = [] } = JSON.parse(event.body || '{}');
       await writeTab(token, 'Tasks', [TASK_HEADER].concat(tasks.map(t => [
-        String(t.id), t.text || '', t.category || 'Unsorted', t.priority || 'medium', t.done ? 'true' : 'false', t.dueDate || '', t.createdAt || new Date().toISOString()
+        String(t.id), t.text || '', t.category || 'Unsorted', t.priority || 'medium', t.done ? 'true' : 'false', t.dueDate || '', t.createdAt || new Date().toISOString(), JSON.stringify(t.details || [])
       ])));
       await writeTab(token, 'Meta', [['key', 'value'], ['pinned', pinned], ['context', context], ['glossary', JSON.stringify(glossary || [])]]);
       await writeTab(token, 'Log', [LOG_HEADER].concat((log || []).map(e => [e.text || '', e.category || '', e.dueDate || '', e.completedAt || ''])));

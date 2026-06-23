@@ -147,6 +147,20 @@
   .due input[type=date]{position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; border:none; background:none;}
   .dueclear{background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px; line-height:1; padding:2px 5px; border-radius:6px;}
   .dueclear:hover{color:var(--red); background:var(--bg);}
+  .dtoggle{font-family:inherit; font-size:10.5px; font-weight:600; padding:3px 8px; border-radius:18px; border:1.5px solid var(--line); background:transparent; color:var(--muted); cursor:pointer;}
+  .dtoggle:hover{border-color:var(--ink); color:var(--ink);}
+  .details{margin-top:9px; padding-top:9px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:5px;}
+  .dpoint{display:flex; align-items:center; gap:8px;}
+  .dcheck{width:16px; height:16px; flex-shrink:0; border-radius:5px; border:1.5px solid var(--line); background:transparent; color:var(--cream); font-size:11px; line-height:1; cursor:pointer; display:grid; place-items:center;}
+  .dcheck.on{background:var(--ink); border-color:var(--ink);}
+  .dtext{flex:1; min-width:0; font-size:13px; color:var(--ink); outline:none; cursor:text; line-height:1.35; border-radius:4px;}
+  .dtext:focus{background:var(--bg); box-shadow:0 0 0 2px var(--line);}
+  .dtext.done{color:var(--muted); text-decoration:line-through;}
+  .drm{background:none; border:none; color:var(--muted); cursor:pointer; font-size:15px; padding:0 4px; flex-shrink:0;}
+  .drm:hover{color:var(--red);}
+  .dadd input{width:100%; font-family:inherit; font-size:13px; padding:7px 10px; border:1.5px solid var(--line); border-radius:9px; background:var(--bg); color:var(--ink);}
+  .dadd input:focus{outline:none; border-color:var(--ink);}
+  .dadd input::placeholder{color:var(--muted);}
   .del{flex-shrink:0; background:none; border:none; cursor:pointer; color:var(--muted); font-size:18px; padding:2px 5px; border-radius:7px;}
   .del:hover{color:var(--red); background:var(--bg);}
   .empty{text-align:center; color:var(--muted); padding:30px 16px; font-size:14px; line-height:1.6; border:1.5px dashed var(--line); border-radius:14px;}
@@ -201,7 +215,7 @@
 
   <div class="seg" id="surfaceToggle"></div>
   <div id="surface"><div class="loading">Loading…</div></div>
-  <div class="build">build v11 · browser + iOS app · direct Sheets sync</div>
+  <div class="build">build v12 · browser + iOS app · direct Sheets sync</div>
 </div>
 
 <!-- SETTINGS -->
@@ -229,6 +243,7 @@ const CATS=['Personal','Leadly','School'];
 const FALLBACK_WEATHER={temp:19,emoji:'☀️',desc:'Sunny'};
 let state={ pinned:'', glossary:[], context:'', tasks:[], log:[] };
 let surface='calendar', view='week', filter='All', isSorting=false;
+let expanded=new Set(); let pendingFocus=null;
 let focus=new Date(); focus.setHours(0,0,0,0);
 const $=id=>document.getElementById(id);
 const el=(t,c)=>{ const e=document.createElement(t); if(c) e.className=c; return e; };
@@ -293,7 +308,7 @@ let tT; function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add(
 
 /* actions */
 function add(){ const v=$('input').value.trim(); if(!v) return;
-  const t={ id:Date.now()+Math.random(), text:v, category:'Unsorted', priority:'medium', done:false, dueDate:'', createdAt:new Date().toISOString() };
+  const t={ id:Date.now()+Math.random(), text:v, category:'Unsorted', priority:'medium', done:false, dueDate:'', createdAt:new Date().toISOString(), details:[] };
   // In calendar mode, new tasks default to the focused day so they show up where you are.
   if(surface==='calendar') t.dueDate=key(focus);
   state.tasks.unshift(t); $('input').value=''; save(); paint(); $('input').focus(); scheduleSort(); }
@@ -362,7 +377,29 @@ function rowEl(t){
     due.appendChild(di);
     meta.appendChild(due);
     if(t.dueDate){ const x=el('button','dueclear'); x.innerHTML='×'; x.title='Clear date'; x.onclick=()=>setDue(t.id,''); meta.appendChild(x); }
+    const dn=(t.details||[]).length;
+    const dtog=el('button','dtoggle'); dtog.innerHTML = dn? '≡ '+dn : '＋ details';
+    dtog.onclick=()=>{ if(expanded.has(t.id)) expanded.delete(t.id); else expanded.add(t.id); paint(); };
+    meta.appendChild(dtog);
     body.appendChild(meta);
+    if(expanded.has(t.id)){
+      t.details=t.details||[];
+      const panel=el('div','details');
+      t.details.forEach((pt,idx)=>{
+        const row=el('div','dpoint');
+        const ck=el('button','dcheck'+(pt.done?' on':'')); ck.innerHTML=pt.done?'✓':''; ck.onclick=()=>{ pt.done=!pt.done; save(); paint(); };
+        const tx=el('div','dtext'+(pt.done?' done':'')); tx.contentEditable='true'; tx.spellcheck=false; tx.textContent=pt.text;
+        tx.addEventListener('input',()=>{ pt.text=tx.textContent; save(); });
+        tx.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); tx.blur(); } });
+        const rm=el('button','drm'); rm.innerHTML='×'; rm.title='Remove point'; rm.onclick=()=>{ t.details.splice(idx,1); save(); paint(); };
+        row.append(ck,tx,rm); panel.appendChild(row);
+      });
+      const addRow=el('div','dadd');
+      const ai=el('input'); ai.type='text'; ai.placeholder='Add a point…'; ai.dataset.add=t.id; ai.autocomplete='off';
+      ai.addEventListener('keydown',e=>{ if(e.key==='Enter'){ const v=ai.value.trim(); if(v){ t.details.push({text:v,done:false}); pendingFocus='add:'+t.id; save(); paint(); } } });
+      addRow.appendChild(ai); panel.appendChild(addRow);
+      body.appendChild(panel);
+    }
   }
   const dl=el('button','del'); dl.innerHTML='×'; dl.title='Delete'; dl.onclick=()=>del(t.id);
   li.append(ck,body,dl); return li;
@@ -477,6 +514,7 @@ function paint(){
   paintAuto(); renderSurfaceToggle();
   const box=$('surface'); box.innerHTML='';
   if(surface==='calendar') calendarSurface(box); else listSurface(box);
+  if(pendingFocus && pendingFocus.indexOf('add:')===0){ const id=pendingFocus.slice(4); const f=document.querySelector('[data-add="'+id+'"]'); if(f) f.focus(); pendingFocus=null; }
 }
 
 /* settings */
