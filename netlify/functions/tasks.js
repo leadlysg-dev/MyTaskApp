@@ -1,7 +1,6 @@
 // Google Sheets = your database.
-// GET  -> returns { name, pinned, tasks }
-// POST -> overwrites the sheet with { name, pinned, tasks }
-// Credentials come from Netlify env vars; nothing sensitive is in the browser.
+// GET  -> { pinned, context, glossary, tasks }
+// POST -> overwrites the sheet with { pinned, context, glossary, tasks }
 
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
@@ -43,11 +42,13 @@ exports.handler = async (event) => {
       const metaRows = await metaSheet.getRows();
       const meta = {};
       metaRows.forEach(r => { meta[r.get('key')] = r.get('value'); });
-      return json(200, { name: meta.name || '', pinned: meta.pinned || '', tasks });
+      let glossary = [];
+      try { glossary = JSON.parse(meta.glossary || '[]'); } catch (e) { glossary = []; }
+      return json(200, { pinned: meta.pinned || '', context: meta.context || '', glossary, tasks });
     }
 
     if (event.httpMethod === 'POST') {
-      const { name = '', pinned = '', tasks = [] } = JSON.parse(event.body || '{}');
+      const { pinned = '', context = '', glossary = [], tasks = [] } = JSON.parse(event.body || '{}');
 
       await tasksSheet.clearRows();
       if (tasks.length) {
@@ -64,8 +65,9 @@ exports.handler = async (event) => {
 
       await metaSheet.clearRows();
       await metaSheet.addRows([
-        { key: 'name', value: name },
-        { key: 'pinned', value: pinned }
+        { key: 'pinned', value: pinned },
+        { key: 'context', value: context },
+        { key: 'glossary', value: JSON.stringify(glossary || []) }
       ]);
 
       return json(200, { ok: true });
