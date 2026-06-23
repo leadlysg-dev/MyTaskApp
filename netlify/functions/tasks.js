@@ -23,6 +23,33 @@ async function getOrCreate(doc, title, headers) {
 }
 
 exports.handler = async (event) => {
+  // ---- Diagnostic mode: /.netlify/functions/tasks?debug=1 ----
+  // Shows what the DEPLOYED function actually reads + tests the live connection.
+  // Reveals no secrets (only the non-secret sheet ID, email, and key sanity).
+  if (event.queryStringParameters && event.queryStringParameters.debug === '1') {
+    const sheetId = process.env.GOOGLE_SHEET_ID || '';
+    const pk = process.env.GOOGLE_PRIVATE_KEY || '';
+    const info = {
+      sheetId_exactValue: JSON.stringify(sheetId),          // quotes/spaces/newlines become visible here
+      sheetId_length: sheetId.length,
+      serviceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || null,
+      privateKey_present: !!pk,
+      privateKey_startsWith: pk.slice(0, 27),
+      privateKey_hasEscapedNewlines: pk.includes('\\n'),
+      privateKey_hasRealNewlines: pk.includes('\n'),
+      anthropicKey_present: !!process.env.ANTHROPIC_API_KEY
+    };
+    try {
+      const doc = await getDoc();
+      info.connection = 'OK';
+      info.spreadsheetTitle = doc.title;
+    } catch (e) {
+      info.connection = 'FAILED';
+      info.connectionError = String((e && e.message) || e);
+    }
+    return json(200, info);
+  }
+
   try {
     const doc = await getDoc();
     const tasksSheet = await getOrCreate(doc, 'Tasks', ['id', 'text', 'category', 'priority', 'done', 'dueDate', 'createdAt']);
