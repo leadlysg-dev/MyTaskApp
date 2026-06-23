@@ -1,56 +1,81 @@
-// Google Sheets = your database.
+// Google Sheets database — talks to the Sheets REST API directly (robust).
 // GET  -> { pinned, context, glossary, tasks }
 // POST -> overwrites the sheet with { pinned, context, glossary, tasks }
+// ?debug=1 -> shows env + connection + write test
+const VERSION = 'v8-rawrest';
 
-const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
 
-async function getDoc() {
+const SHEET_ID = process.env.GOOGLE_SHEET_ID || '';
+const TASK_HEADER = ['id', 'text', 'category', 'priority', 'done', 'dueDate', 'createdAt'];
+
+async function getToken() {
   const jwt = new JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     key: (process.env.GOOGLE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
-  const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID, jwt);
-  await doc.loadInfo();
-  return doc;
+  const { token } = await jwt.getAccessToken();
+  return token;
 }
 
-async function getOrCreate(doc, title, headers) {
-  let sheet = doc.sheetsByTitle[title];
-  if (!sheet) sheet = await doc.addSheet({ title, headerValues: headers });
-  return sheet;
+async function api(token, method, path, body) {
+  const url = 'https://sheets.googleapis.com/v4/spreadsheets/' + SHEET_ID + path;
+  const r = await fetch(url, {
+    method,
+    headers: { Authorization: 'Bearer ' + token, 'content-type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error('Sheets ' + r.status + ': ' + (data.error && data.error.message || 'unknown'));
+  return data;
+}
+
+async function ensureTabs(token, titles) {
+  const meta = await api(token, 'GET', '?fields=sheets.properties.title');
+  const have = (meta.sheets || []).map(s => s.properties.title);
+  const missing = titles.filter(t => !have.includes(t));
+  if (missing.length) {
+    try {
+      await api(token, 'POST', ':batchUpdate', { requests: missing.map(title => ({ addSheet: { properties: { title } } })) });
+    } catch (e) { /* tab may already exist from a concurrent call — ignore */ }
+  }
+}
+
+async function readTab(token, tab) {
+  const d = await api(token, 'GET', '/values/' + encodeURIComponent(tab + '!A1:Z100000'));
+  return d.values || [];
+}
+
+async function writeTab(token, tab, values) {
+  await api(token, 'POST', '/values/' + encodeURIComponent(tab + '!A1:Z100000') + ':clear', {});
+  await api(token, 'PUT', '/values/' + encodeURIComponent(tab + '!A1') + '?valueInputOption=RAW', { values });
 }
 
 exports.handler = async (event) => {
-  // ---- Diagnostic mode: /.netlify/functions/tasks?debug=1 ----
-  // Shows what the DEPLOYED function actually reads + tests the live connection.
-  // Reveals no secrets (only the non-secret sheet ID, email, and key sanity).
+  // ---- Diagnostic mode ----
   if (event.queryStringParameters && event.queryStringParameters.debug === '1') {
-    const sheetId = process.env.GOOGLE_SHEET_ID || '';
     const pk = process.env.GOOGLE_PRIVATE_KEY || '';
     const info = {
-      sheetId_exactValue: JSON.stringify(sheetId),          // quotes/spaces/newlines become visible here
-      sheetId_length: sheetId.length,
+      version: VERSION,
+      sheetId_exactValue: JSON.stringify(SHEET_ID),
+      sheetId_length: SHEET_ID.length,
       serviceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || null,
       privateKey_present: !!pk,
       privateKey_startsWith: pk.slice(0, 27),
-      privateKey_hasEscapedNewlines: pk.includes('\\n'),
-      privateKey_hasRealNewlines: pk.includes('\n'),
       anthropicKey_present: !!process.env.ANTHROPIC_API_KEY
     };
     try {
-      const doc = await getDoc();
+      const token = await getToken();
+      info.gotToken = true;
+      const meta = await api(token, 'GET', '?fields=properties.title,sheets.properties.title');
       info.connection = 'OK';
-      info.spreadsheetTitle = doc.title;
-      // Write test on an isolated _diag tab (does not touch your real data)
+      info.spreadsheetTitle = meta.properties && meta.properties.title;
+      info.existingTabs = (meta.sheets || []).map(s => s.properties.title);
       try {
-        const diag = await getOrCreate(doc, '_diag', ['ts', 'note']);
-        await diag.clearRows();
-        await diag.addRows([{ ts: new Date().toISOString(), note: 'write-test' }]);
-        const rows = await diag.getRows();
+        await ensureTabs(token, ['_diag']);
+        await writeTab(token, '_diag', [['ts', 'note'], [new Date().toISOString(), 'write-test']]);
         info.writeTest = 'OK';
-        info.writeRowsNow = rows.length;
       } catch (we) {
         info.writeTest = 'FAILED';
         info.writeError = String((we && we.message) || we);
@@ -63,24 +88,24 @@ exports.handler = async (event) => {
   }
 
   try {
-    const doc = await getDoc();
-    const tasksSheet = await getOrCreate(doc, 'Tasks', ['id', 'text', 'category', 'priority', 'done', 'dueDate', 'createdAt']);
-    const metaSheet = await getOrCreate(doc, 'Meta', ['key', 'value']);
+    const token = await getToken();
+    await ensureTabs(token, ['Tasks', 'Meta']);
 
     if (event.httpMethod === 'GET') {
-      const rows = await tasksSheet.getRows();
-      const tasks = rows.map(r => ({
-        id: r.get('id'),
-        text: r.get('text'),
-        category: r.get('category') || 'Unsorted',
-        priority: r.get('priority') || 'medium',
-        done: String(r.get('done')).toLowerCase() === 'true',
-        dueDate: r.get('dueDate') || '',
-        createdAt: r.get('createdAt') || ''
+      const taskRows = await readTab(token, 'Tasks');
+      const header = taskRows[0] || TASK_HEADER;
+      const tasks = taskRows.slice(1).map(r => {
+        const o = {};
+        header.forEach((h, i) => { o[h] = r[i]; });
+        return o;
+      }).filter(o => o.id).map(o => ({
+        id: o.id, text: o.text || '',
+        category: o.category || 'Unsorted', priority: o.priority || 'medium',
+        done: String(o.done).toLowerCase() === 'true', dueDate: o.dueDate || '', createdAt: o.createdAt || ''
       }));
-      const metaRows = await metaSheet.getRows();
+      const metaRows = await readTab(token, 'Meta');
       const meta = {};
-      metaRows.forEach(r => { meta[r.get('key')] = r.get('value'); });
+      metaRows.slice(1).forEach(r => { if (r[0]) meta[r[0]] = r[1]; });
       let glossary = [];
       try { glossary = JSON.parse(meta.glossary || '[]'); } catch (e) { glossary = []; }
       return json(200, { pinned: meta.pinned || '', context: meta.context || '', glossary, tasks });
@@ -88,28 +113,15 @@ exports.handler = async (event) => {
 
     if (event.httpMethod === 'POST') {
       const { pinned = '', context = '', glossary = [], tasks = [] } = JSON.parse(event.body || '{}');
-
-      await tasksSheet.clearRows();
-      if (tasks.length) {
-        await tasksSheet.addRows(tasks.map(t => ({
-          id: String(t.id),
-          text: t.text || '',
-          category: t.category || 'Unsorted',
-          priority: t.priority || 'medium',
-          done: t.done ? 'true' : 'false',
-          dueDate: t.dueDate || '',
-          createdAt: t.createdAt || new Date().toISOString()
-        })));
-      }
-
-      await metaSheet.clearRows();
-      await metaSheet.addRows([
-        { key: 'pinned', value: pinned },
-        { key: 'context', value: context },
-        { key: 'glossary', value: JSON.stringify(glossary || []) }
+      const taskValues = [TASK_HEADER].concat(tasks.map(t => [
+        String(t.id), t.text || '', t.category || 'Unsorted', t.priority || 'medium',
+        t.done ? 'true' : 'false', t.dueDate || '', t.createdAt || new Date().toISOString()
+      ]));
+      await writeTab(token, 'Tasks', taskValues);
+      await writeTab(token, 'Meta', [
+        ['key', 'value'], ['pinned', pinned], ['context', context], ['glossary', JSON.stringify(glossary || [])]
       ]);
-
-      return json(200, { ok: true });
+      return json(200, { ok: true, version: VERSION });
     }
 
     return { statusCode: 405, body: 'Method not allowed' };

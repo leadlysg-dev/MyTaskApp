@@ -4,7 +4,6 @@
   "private": true,
   "description": "Personal command-center to-do app: one dump, Claude sorts, Google Sheets database.",
   "dependencies": {
-    "google-spreadsheet": "^4.1.4",
-    "google-auth-library": "^9.14.1"
+    "google-auth-library": "^9.15.1"
   }
 }

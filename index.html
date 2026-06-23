@@ -181,6 +181,7 @@
   <div class="tabs" id="tabs"></div>
   <div class="datebanner" id="datebanner"><span id="datebannerTxt"></span><button id="dateClear">×</button></div>
   <div id="app"><div class="loading">Loading…</div></div>
+  <div style="text-align:center;color:var(--muted);font-size:10px;opacity:.6;margin-top:16px;letter-spacing:.05em">build v8 · direct Sheets sync</div>
 </div>
 
 <!-- SETTINGS -->
@@ -254,9 +255,18 @@ async function remoteLoad(){
     cacheSave(); $('pinned').textContent=state.pinned||''; paint(); setSync('synced');
   }catch(e){ setSync('offline'); }
 }
-let postTimer;
-function save(){ cacheSave(); setSync('saving'); clearTimeout(postTimer); postTimer=setTimeout(remoteSave,700); }
-async function remoteSave(){ try{ const r=await fetch(API+'/tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(state)}); if(!r.ok) throw 0; setSync('synced'); }catch(e){ setSync('offline'); } }
+let saveTimer, saveInFlight=false, saveQueued=false;
+function save(){ cacheSave(); setSync('saving'); clearTimeout(saveTimer); saveTimer=setTimeout(flush,600); }
+async function flush(){
+  if(saveInFlight){ saveQueued=true; return; }      // a save is running — queue the next
+  saveInFlight=true; saveQueued=false;
+  try{
+    const r=await fetch(API+'/tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(state)});
+    if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('HTTP '+r.status+(t?' — '+t.slice(0,140):'')); }
+    setSync('synced');
+  }catch(e){ setSync('offline'); console.error('Save failed:',e); toast('Save failed — '+(e.message||e)); }
+  finally{ saveInFlight=false; if(saveQueued) flush(); }   // run again with the latest state
+}
 
 /* toast */
 let tT; function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('show'); clearTimeout(tT); tT=setTimeout(()=>t.classList.remove('show'),2200); }
