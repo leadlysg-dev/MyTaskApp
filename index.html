@@ -87,6 +87,19 @@
   .dayhero{text-align:center; padding:8px 0 4px;}
   .dayhero .big{font-family:'Spline Sans Mono',monospace; font-size:46px; font-weight:500; line-height:1;}
   .dayhero .sub{color:var(--muted); font-size:13px; margin-top:2px;}
+  .wk-day{display:flex; align-items:baseline; gap:8px; margin:16px 2px 8px; cursor:pointer;}
+  .wk-day .d{font-family:'Bricolage Grotesque',sans-serif; font-weight:700; font-size:15px;}
+  .wk-day .dow{font-size:12px; color:var(--muted);}
+  .wk-day.today .d{color:var(--leadly);}
+  .wk-day.today .dow{color:var(--leadly);}
+  .wk-day .cnt{margin-left:auto; font-size:11px; color:var(--muted);}
+  .wk-empty{font-size:12px; color:var(--muted); margin:0 2px 8px; opacity:.5;}
+  .text[contenteditable]{outline:none; cursor:text; border-radius:5px; padding:0 2px; margin:0 -2px;}
+  .text[contenteditable]:focus{background:var(--bg); box-shadow:0 0 0 2px var(--line);}
+  .logitem{display:flex; align-items:center; gap:8px; background:var(--card); border:1.5px solid var(--line); border-radius:11px; padding:9px 11px; margin-bottom:6px;}
+  .logitem .lt{flex:1; min-width:0; font-size:13.5px; color:var(--muted); text-decoration:line-through; word-break:break-word;}
+  .logitem .undo{background:none; border:none; color:var(--muted); cursor:pointer; font-size:15px; padding:2px 5px; border-radius:7px; flex-shrink:0;}
+  .logitem .undo:hover{color:var(--ink); background:var(--bg);}
 
   /* TABS */
   .tabs{display:flex; gap:6px; margin-bottom:12px; overflow-x:auto; padding-bottom:2px; scrollbar-width:none;}
@@ -186,7 +199,7 @@
 
   <div class="seg" id="surfaceToggle"></div>
   <div id="surface"><div class="loading">Loading…</div></div>
-  <div class="build">build v9 · browser + iOS app · direct Sheets sync</div>
+  <div class="build">build v10 · browser + iOS app · direct Sheets sync</div>
 </div>
 
 <!-- SETTINGS -->
@@ -212,7 +225,7 @@ const API='/.netlify/functions';
 const LS='todo-cache-v3', UI='cc-ui-v1';
 const CATS=['Personal','Leadly','School'];
 const FALLBACK_WEATHER={temp:19,emoji:'☀️',desc:'Sunny'};
-let state={ pinned:'', glossary:[], context:'', tasks:[] };
+let state={ pinned:'', glossary:[], context:'', tasks:[], log:[] };
 let surface='calendar', view='month', filter='All', isSorting=false;
 let focus=new Date(); focus.setHours(0,0,0,0);
 const $=id=>document.getElementById(id);
@@ -254,12 +267,12 @@ function loadUI(){ try{ const u=JSON.parse(localStorage.getItem(UI)||'{}'); if(u
 function saveUI(){ try{ localStorage.setItem(UI,JSON.stringify({surface,view,filter})); }catch(e){} }
 
 /* storage */
-function norm(s){ s.pinned=s.pinned||''; s.context=s.context||''; s.glossary=Array.isArray(s.glossary)?s.glossary:[]; s.tasks=Array.isArray(s.tasks)?s.tasks:[]; return s; }
+function norm(s){ s.pinned=s.pinned||''; s.context=s.context||''; s.glossary=Array.isArray(s.glossary)?s.glossary:[]; s.tasks=Array.isArray(s.tasks)?s.tasks:[]; s.log=Array.isArray(s.log)?s.log:[]; return s; }
 function cacheLoad(){ try{ const s=localStorage.getItem(LS); if(s) state=norm(JSON.parse(s)); }catch(e){} }
 function cacheSave(){ try{ localStorage.setItem(LS,JSON.stringify(state)); }catch(e){} }
 async function remoteLoad(){
   try{ const r=await fetch(API+'/tasks'); if(!r.ok) throw 0; const d=await r.json();
-    state=norm({ pinned:d.pinned, context:d.context, glossary:d.glossary, tasks:(d.tasks||[]).map(t=>({...t,dueDate:t.dueDate||''})) });
+    state=norm({ pinned:d.pinned, context:d.context, glossary:d.glossary, log:d.log, tasks:(d.tasks||[]).map(t=>({...t,dueDate:t.dueDate||''})) });
     cacheSave(); $('pinned').textContent=state.pinned||''; paint(); setSync('synced');
   }catch(e){ setSync('offline'); }
 }
@@ -282,7 +295,13 @@ function add(){ const v=$('input').value.trim(); if(!v) return;
   // In calendar mode, new tasks default to the focused day so they show up where you are.
   if(surface==='calendar') t.dueDate=key(focus);
   state.tasks.unshift(t); $('input').value=''; save(); paint(); $('input').focus(); scheduleSort(); }
-function toggleDone(id){ const t=find(id); if(t) t.done=!t.done; save(); paint(); }
+function toggleDone(id){ const t=find(id); if(!t) return;
+  state.log.unshift({ text:t.text, category:t.category, dueDate:t.dueDate||'', completedAt:new Date().toISOString() });
+  state.tasks=state.tasks.filter(x=>x.id!==id);
+  save(); paint(); toast('Done ✓ saved to memory'); }
+function undoComplete(idx){ const e=state.log[idx]; if(!e) return; state.log.splice(idx,1);
+  state.tasks.unshift({ id:Date.now()+Math.random(), text:e.text, category:e.category||'Unsorted', priority:'medium', done:false, dueDate:e.dueDate||'', createdAt:new Date().toISOString() });
+  save(); paint(); }
 function cycleCat(id){ const t=find(id); if(!t||t.category==='Unsorted') return; const o=['Personal','Leadly','School']; t.category=o[(o.indexOf(t.category)+1)%o.length]; save(); paint(); }
 function setDue(id,v){ const t=find(id); if(t) t.dueDate=v||''; save(); paint(); }
 function del(id){ state.tasks=state.tasks.filter(t=>t.id!==id); save(); paint(); }
@@ -319,7 +338,13 @@ function checkSVG(){ return '<svg viewBox="0 0 24 24" fill="none" stroke="white"
 function rowEl(t){
   const li=el('li'); li.dataset.cat=t.category; if(t.done) li.classList.add('done-row');
   const ck=el('div','check'+(t.done?' done':'')); ck.innerHTML=checkSVG(); ck.onclick=()=>toggleDone(t.id);
-  const body=el('div','tbody'); const text=el('div','text'); text.textContent=t.text; body.appendChild(text);
+  const body=el('div','tbody'); const text=el('div','text'); text.textContent=t.text;
+  if(!t.done){
+    text.contentEditable='true'; text.spellcheck=false; text.title='Tap to edit';
+    text.addEventListener('input',()=>{ t.text=text.textContent; save(); });
+    text.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); text.blur(); } });
+  }
+  body.appendChild(text);
   if(!t.done){
     const meta=el('div','meta');
     const chip=el('button');
@@ -372,8 +397,7 @@ function calCard(){
     const hero=el('div','dayhero'); const big=el('div','big'); big.textContent=focus.getDate(); const sub=el('div','sub'); sub.textContent=focus.toLocaleDateString(undefined,{weekday:'long'});
     hero.append(big,sub); card.appendChild(hero);
   } else if(view==='week'){
-    const grid=el('div','cal-grid'); grid.appendChild(dowRow()); const s=startOfWeek(focus);
-    for(let i=0;i<7;i++) grid.appendChild(dayCell(addDays(s,i),false)); card.appendChild(grid);
+    /* week renders as a full per-day agenda below the card */
   } else {
     const grid=el('div','cal-grid'); grid.appendChild(dowRow());
     const first=new Date(focus.getFullYear(),focus.getMonth(),1); const start=first.getDay(); const days=new Date(focus.getFullYear(),focus.getMonth()+1,0).getDate();
@@ -393,11 +417,31 @@ function calendarSurface(box){
   box.appendChild(calCard());
   const overdue=state.tasks.filter(t=>!t.done&&t.dueDate&&dueInfo(t.dueDate).state==='overdue').sort(sortByPrio);
   if(overdue.length){ box.appendChild(groupLabel('Overdue · '+overdue.length,'over')); box.appendChild(listOf(overdue)); }
-  const dueToday=tasksDue(key(focus)).slice().sort(sortByPrio);
-  const flabel = key(focus)===TODAY_KEY ? 'Due today' : 'Due '+focus.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'});
-  box.appendChild(groupLabel(flabel+' · '+dueToday.length));
-  if(dueToday.length) box.appendChild(listOf(dueToday));
-  else { const e=el('div','empty'); e.innerHTML='Nothing due this day.<br>Add something above, or schedule an unscheduled task below.'; box.appendChild(e); }
+
+  if(view==='week'){
+    const s=startOfWeek(focus);
+    for(let i=0;i<7;i++){
+      const day=addDays(s,i); const k=key(day);
+      const head=el('div','wk-day'+(k===TODAY_KEY?' today':''));
+      const d=el('span','d'); d.textContent=day.getDate();
+      const dow=el('span','dow'); dow.textContent=day.toLocaleDateString(undefined,{weekday:'long'});
+      const dts=tasksDue(k).slice().sort(sortByPrio);
+      const cnt=el('span','cnt'); cnt.textContent=dts.length?dts.length:'';
+      head.append(d,dow,cnt);
+      head.title='Open this day';
+      head.onclick=()=>{ focus=new Date(day); focus.setHours(0,0,0,0); view='day'; saveUI(); paint(); };
+      box.appendChild(head);
+      if(dts.length) box.appendChild(listOf(dts));
+      else { const e=el('div','wk-empty'); e.textContent='Nothing due'; box.appendChild(e); }
+    }
+  } else {
+    const dueF=tasksDue(key(focus)).slice().sort(sortByPrio);
+    const flabel = key(focus)===TODAY_KEY ? 'Due today' : 'Due '+focus.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'});
+    box.appendChild(groupLabel(flabel+' · '+dueF.length));
+    if(dueF.length) box.appendChild(listOf(dueF));
+    else { const e=el('div','empty'); e.innerHTML='Nothing due this day.<br>Add something above, or schedule a task below.'; box.appendChild(e); }
+  }
+
   const unsched=state.tasks.filter(t=>!t.done&&!t.dueDate).sort(sortByPrio);
   if(unsched.length){ box.appendChild(groupLabel('Unscheduled · '+unsched.length)); box.appendChild(listOf(unsched)); }
 }
@@ -410,10 +454,19 @@ function listSurface(box){
   box.appendChild(tabs);
   let vis=state.tasks.filter(t=> filter==='All'||t.category===filter);
   let active=vis.filter(t=>!t.done).sort((a,b)=>{ const ai=a.dueDate?dueInfo(a.dueDate):null, bi=b.dueDate?dueInfo(b.dueDate):null; const au=ai&&(ai.state==='overdue'||ai.state==='today')?0:1, bu=bi&&(bi.state==='overdue'||bi.state==='today')?0:1; if(au!==bu) return au-bu; return sortByPrio(a,b); });
-  let done=vis.filter(t=>t.done);
-  if(!active.length&&!done.length){ const e=el('div','empty'); e.innerHTML=state.tasks.length? 'Nothing in <b>'+filter+'</b> right now.' : '<span class="big">🗒️</span>Empty and calm.<br>Dump your first thing up top.'; box.appendChild(e); return; }
+  const logVis=state.log.map((e,i)=>({e,i})).filter(o=> filter==='All'||o.e.category===filter);
+  if(!active.length && !logVis.length){ const e=el('div','empty'); e.innerHTML=state.tasks.length? 'Nothing in <b>'+filter+'</b> right now.' : '<span class="big">🗒️</span>Empty and calm.<br>Dump your first thing up top.'; box.appendChild(e); return; }
   if(active.length) box.appendChild(listOf(active));
-  if(done.length){ box.appendChild(groupLabel('Done · '+done.length)); box.appendChild(listOf(done)); }
+  if(logVis.length){
+    box.appendChild(groupLabel('Completed · '+logVis.length));
+    logVis.slice(0,50).forEach(({e,i})=>{
+      const row=el('div','logitem');
+      const lt=el('div','lt'); lt.textContent=e.text;
+      const cat=el('span','chip'); cat.dataset.cat=e.category||'Unsorted'; cat.textContent=e.category||'—';
+      const undo=el('button','undo'); undo.innerHTML='↩'; undo.title='Restore to active'; undo.onclick=()=>undoComplete(i);
+      row.append(lt,cat,undo); box.appendChild(row);
+    });
+  }
 }
 function paint(){
   paintAuto(); renderSurfaceToggle();
