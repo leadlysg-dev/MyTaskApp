@@ -144,7 +144,9 @@
   .due.set.today,.due.set.soon{background:var(--school-soft); border-color:transparent; color:var(--school);}
   .due.set.later{background:var(--bg); border-color:transparent; color:var(--ink);}
   .due .x{font-size:13px; opacity:.6;}
-  .due input[type=date]{position:absolute; left:0; bottom:0; width:1px; height:1px; opacity:0; pointer-events:none;}
+  .due input[type=date]{position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; border:none; background:none;}
+  .dueclear{background:none; border:none; color:var(--muted); cursor:pointer; font-size:16px; line-height:1; padding:2px 5px; border-radius:6px;}
+  .dueclear:hover{color:var(--red); background:var(--bg);}
   .del{flex-shrink:0; background:none; border:none; cursor:pointer; color:var(--muted); font-size:18px; padding:2px 5px; border-radius:7px;}
   .del:hover{color:var(--red); background:var(--bg);}
   .empty{text-align:center; color:var(--muted); padding:30px 16px; font-size:14px; line-height:1.6; border:1.5px dashed var(--line); border-radius:14px;}
@@ -199,7 +201,7 @@
 
   <div class="seg" id="surfaceToggle"></div>
   <div id="surface"><div class="loading">Loading…</div></div>
-  <div class="build">build v10 · browser + iOS app · direct Sheets sync</div>
+  <div class="build">build v11 · browser + iOS app · direct Sheets sync</div>
 </div>
 
 <!-- SETTINGS -->
@@ -222,11 +224,11 @@
 
 <script>
 const API='/.netlify/functions';
-const LS='todo-cache-v3', UI='cc-ui-v1';
+const LS='todo-cache-v3', UI='cc-ui-v2';
 const CATS=['Personal','Leadly','School'];
 const FALLBACK_WEATHER={temp:19,emoji:'☀️',desc:'Sunny'};
 let state={ pinned:'', glossary:[], context:'', tasks:[], log:[] };
-let surface='calendar', view='month', filter='All', isSorting=false;
+let surface='calendar', view='week', filter='All', isSorting=false;
 let focus=new Date(); focus.setHours(0,0,0,0);
 const $=id=>document.getElementById(id);
 const el=(t,c)=>{ const e=document.createElement(t); if(c) e.className=c; return e; };
@@ -351,13 +353,16 @@ function rowEl(t){
     if(t.category==='Unsorted'&&isSorting){ chip.className='chip sorting'; chip.innerHTML='<span class="spin"></span>sorting'; }
     else { chip.className='chip'; chip.dataset.cat=t.category; chip.textContent=t.category; chip.title='Tap to change'; chip.onclick=()=>cycleCat(t.id); }
     meta.appendChild(chip);
-    if(t.category!=='Unsorted'){ const p=el('span','prio '+t.priority); p.innerHTML='<span class="pd"></span>'+t.priority; meta.appendChild(p); }
     const inf=dueInfo(t.dueDate);
-    const due=el('button','due'+(t.dueDate?' set '+inf.state:'')); due.type='button';
-    due.innerHTML='📅 '+inf.label+(t.dueDate?' <span class="x" title="Clear">×</span>':'');
-    const di=el('input'); di.type='date'; di.value=t.dueDate||''; di.onchange=e=>setDue(t.id,e.target.value); due.appendChild(di);
-    due.onclick=e=>{ if(e.target.classList.contains('x')){ e.preventDefault(); e.stopPropagation(); setDue(t.id,''); return; } try{ di.showPicker(); }catch(_){ di.focus(); } };
-    meta.appendChild(due); body.appendChild(meta);
+    const due=el('label','due'+(t.dueDate?' set '+inf.state:''));
+    due.innerHTML='📅 '+inf.label;
+    const di=el('input'); di.type='date'; di.value=t.dueDate||'';
+    di.onchange=e=>setDue(t.id,e.target.value);
+    di.onclick=()=>{ try{ di.showPicker(); }catch(_){} };
+    due.appendChild(di);
+    meta.appendChild(due);
+    if(t.dueDate){ const x=el('button','dueclear'); x.innerHTML='×'; x.title='Clear date'; x.onclick=()=>setDue(t.id,''); meta.appendChild(x); }
+    body.appendChild(meta);
   }
   const dl=el('button','del'); dl.innerHTML='×'; dl.title='Delete'; dl.onclick=()=>del(t.id);
   li.append(ck,body,dl); return li;
