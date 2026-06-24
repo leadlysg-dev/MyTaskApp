@@ -69,6 +69,8 @@
   .cal-head .m{font-family:'Bricolage Grotesque',sans-serif; font-weight:700; font-size:15px; flex:1; text-align:center;}
   .cal-nav{background:none; border:1.5px solid var(--line); border-radius:8px; width:28px; height:28px; cursor:pointer; color:var(--ink); font-size:14px; flex-shrink:0;}
   .cal-nav:hover{border-color:var(--ink);}
+  .cal-today{font-family:inherit; font-size:11px; font-weight:600; border:1.5px solid var(--line); background:transparent; color:var(--muted); border-radius:8px; padding:0 9px; height:28px; cursor:pointer; flex-shrink:0;}
+  .cal-today:hover{border-color:var(--ink); color:var(--ink);}
   .cal-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:2px;}
   .cal-dow{text-align:center; font-size:10px; color:var(--muted); font-weight:600; padding-bottom:4px;}
   .cal-cell{aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:12px; border-radius:9px; cursor:pointer; border:1.5px solid transparent;}
@@ -163,29 +165,43 @@
   .loading{text-align:center; color:var(--muted); padding:40px 0;}
   .build{text-align:center; color:var(--muted); font-size:10px; opacity:.6; margin-top:16px; letter-spacing:.05em;}
 
-  /* STATS BAR */
-  .statsbar{display:flex; flex-wrap:wrap; gap:7px; margin-bottom:12px;}
+  /* STATS BAR — desktop only */
+  .statsbar{display:none; flex-wrap:wrap; gap:7px; margin-bottom:12px;}
   .stat{font-size:11.5px; font-weight:500; color:var(--muted); background:var(--card); border:1.5px solid var(--line); border-radius:18px; padding:6px 11px;}
   .stat .sn{font-weight:700; color:var(--ink);}
   .stat.over{border-color:#eccac4;} .stat.over .sn{color:var(--red);}
   .stat.done .sn{color:var(--leadly);}
 
-  /* LAYOUT — mobile: one column, toggle controls which pane shows */
-  .pane-head{display:none;}
-  .layout[data-surface="calendar"] .list-pane{display:none;}
-  .layout[data-surface="list"] .cal-pane{display:none;}
+  /* month-cell task titles + week columns: hidden/stacked on mobile */
+  .cell-tasks{display:none;}
+  .wk-grid{display:block;}
 
-  /* DESKTOP — wide two-pane dashboard */
+  /* DESKTOP — single wide surface that fills the space */
   @media (min-width:980px){
-    body{padding:24px 28px 60px;}
-    .wrap{max-width:1180px;}
+    body{padding:24px 30px 60px;}
+    .wrap{max-width:1080px;}
     .band{padding:18px 22px 16px;}
     .clock{font-size:42px;}
-    #surfaceToggle{display:none;}
-    .layout{display:grid; grid-template-columns:minmax(0,1.12fr) minmax(0,0.9fr); gap:22px; align-items:start;}
-    .layout .cal-pane, .layout .list-pane{display:block !important;}
-    .pane-head{display:block; font-family:'Bricolage Grotesque',sans-serif; font-weight:700; font-size:16px; margin:2px 2px 12px; color:var(--ink);}
-    .cal{padding:16px 16px 12px;}
+    .statsbar{display:flex;}
+    .seg#surfaceToggle{max-width:420px;}
+    /* big month with task titles in each cell */
+    .cal-cell{aspect-ratio:auto; min-height:92px; justify-content:flex-start; align-items:stretch; padding:5px 5px 4px;}
+    .cal-cell .num{align-self:flex-start; margin-bottom:2px;}
+    .cal-dot{display:none;}
+    .cell-tasks{display:flex; flex-direction:column; gap:2px; width:100%; overflow:hidden;}
+    .cell-task{font-size:10.5px; line-height:1.25; padding:1px 5px; border-left:3px solid var(--muted); border-radius:3px; background:var(--bg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:left;}
+    .cell-task[data-cat="Personal"]{border-left-color:var(--personal);}
+    .cell-task[data-cat="Leadly"]{border-left-color:var(--leadly);}
+    .cell-task[data-cat="School"]{border-left-color:var(--school);}
+    .cell-more{font-size:10px; color:var(--muted); padding-left:5px;}
+    /* week becomes a 7-column planner */
+    .wk-grid{display:grid; grid-template-columns:repeat(7,1fr); gap:8px; align-items:start;}
+    .wk-col .wk-day{margin:0 0 8px; cursor:pointer;}
+    .wk-col li{padding:9px 8px;}
+    .wk-col .text{font-size:13px;}
+    /* edit list flows into two columns */
+    .tasklist{column-count:2; column-gap:12px;}
+    .tasklist li{break-inside:avoid;}
   }
   .toast{position:fixed; bottom:calc(14px + env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%) translateY(18px); background:var(--ink); color:var(--cream); padding:10px 16px; border-radius:11px; font-size:13px; opacity:0; pointer-events:none; transition:all .25s; z-index:80; max-width:90%; text-align:center;}
   .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
@@ -234,11 +250,8 @@
 
   <div class="statsbar" id="statsBar"></div>
   <div class="seg" id="surfaceToggle"></div>
-  <div class="layout" id="layout" data-surface="calendar">
-    <section class="pane cal-pane"><div class="pane-head">📅 Calendar</div><div id="calPane"><div class="loading">Loading…</div></div></section>
-    <section class="pane list-pane"><div class="pane-head">✎ Tasks</div><div id="listPane"></div></section>
-  </div>
-  <div class="build">build v16 · responsive · browser + iOS app · direct Sheets sync</div>
+  <div id="surface"><div class="loading">Loading…</div></div>
+  <div class="build">build v17 · responsive · browser + iOS app · direct Sheets sync</div>
 </div>
 
 <!-- SETTINGS -->
@@ -459,7 +472,12 @@ function dayCell(dObj,blank){
   if(k===TODAY_KEY) cell.classList.add('today'); if(k===key(focus)) cell.classList.add('sel');
   const num=el('div','num'); num.textContent=dObj.getDate(); cell.appendChild(num);
   const dts=tasksDue(k);
-  if(dts.length){ const st=dts.map(t=>dueInfo(t.dueDate).state); const cls=st.includes('overdue')?'overdue':st.includes('today')?'today':'later'; cell.appendChild(el('div','cal-dot '+cls)); }
+  if(dts.length){ const st=dts.map(t=>dueInfo(t.dueDate).state); const cls=st.includes('overdue')?'overdue':st.includes('today')?'today':'later'; cell.appendChild(el('div','cal-dot '+cls));
+    const tl=el('div','cell-tasks');
+    dts.slice(0,3).forEach(t=>{ const ti=el('div','cell-task'); ti.dataset.cat=t.category; ti.textContent=t.text; tl.appendChild(ti); });
+    if(dts.length>3){ const mo=el('div','cell-more'); mo.textContent='+'+(dts.length-3)+' more'; tl.appendChild(mo); }
+    cell.appendChild(tl);
+  }
   cell.onclick=()=>{ focus=new Date(dObj); focus.setHours(0,0,0,0); saveUI(); paint(); };
   return cell;
 }
@@ -476,6 +494,9 @@ function calCard(){
   else if(view==='week'){ const s=startOfWeek(focus), e=addDays(s,6); title.textContent=s.toLocaleDateString(undefined,{day:'numeric',month:'short'})+' – '+e.toLocaleDateString(undefined,{day:'numeric',month:'short'}); }
   else title.textContent=focus.toLocaleDateString(undefined,{month:'long',year:'numeric'});
   head.append(prev,title,next); card.appendChild(head);
+  const todayBtn=el('button','cal-today'); todayBtn.textContent='Today';
+  todayBtn.onclick=()=>{ focus=new Date(); focus.setHours(0,0,0,0); saveUI(); paint(); };
+  head.insertBefore(todayBtn,next);
 
   if(view==='day'){
     const hero=el('div','dayhero'); const big=el('div','big'); big.textContent=focus.getDate(); const sub=el('div','sub'); sub.textContent=focus.toLocaleDateString(undefined,{weekday:'long'});
@@ -503,21 +524,23 @@ function calendarSurface(box){
   if(overdue.length){ box.appendChild(groupLabel('Overdue · '+overdue.length,'over')); box.appendChild(listOf(overdue)); }
 
   if(view==='week'){
-    const s=startOfWeek(focus);
+    const s=startOfWeek(focus); const grid=el('div','wk-grid');
     for(let i=0;i<7;i++){
       const day=addDays(s,i); const k=key(day);
+      const col=el('div','wk-col');
       const head=el('div','wk-day'+(k===TODAY_KEY?' today':''));
       const d=el('span','d'); d.textContent=day.getDate();
       const dow=el('span','dow'); dow.textContent=day.toLocaleDateString(undefined,{weekday:'long'});
       const dts=tasksDue(k).slice().sort(sortByPrio);
       const cnt=el('span','cnt'); cnt.textContent=dts.length?dts.length:'';
-      head.append(d,dow,cnt);
-      head.title='Open this day';
+      head.append(d,dow,cnt); head.title='Open this day';
       head.onclick=()=>{ focus=new Date(day); focus.setHours(0,0,0,0); view='day'; saveUI(); paint(); };
-      box.appendChild(head);
-      if(dts.length) box.appendChild(listOf(dts));
-      else { const e=el('div','wk-empty'); e.textContent='Nothing due'; box.appendChild(e); }
+      col.appendChild(head);
+      if(dts.length) col.appendChild(listOf(dts));
+      else { const e=el('div','wk-empty'); e.textContent='Nothing due'; col.appendChild(e); }
+      grid.appendChild(col);
     }
+    box.appendChild(grid);
   } else {
     const dueF=tasksDue(key(focus)).slice().sort(sortByPrio);
     const flabel = key(focus)===TODAY_KEY ? 'Due today' : 'Due '+focus.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'});
@@ -540,7 +563,7 @@ function listSurface(box){
   let active=vis.filter(t=>!t.done).sort((a,b)=>{ const ai=a.dueDate?dueInfo(a.dueDate):null, bi=b.dueDate?dueInfo(b.dueDate):null; const au=ai&&(ai.state==='overdue'||ai.state==='today')?0:1, bu=bi&&(bi.state==='overdue'||bi.state==='today')?0:1; if(au!==bu) return au-bu; return sortByPrio(a,b); });
   const logVis=state.log.map((e,i)=>({e,i})).filter(o=> filter==='All'||o.e.category===filter);
   if(!active.length && !logVis.length){ const e=el('div','empty'); e.innerHTML=state.tasks.length? 'Nothing in <b>'+filter+'</b> right now.' : '<span class="big">🗒️</span>Empty and calm.<br>Dump your first thing up top.'; box.appendChild(e); return; }
-  if(active.length) box.appendChild(listOf(active, true));
+  if(active.length){ const ul=listOf(active, true); ul.classList.add('tasklist'); box.appendChild(ul); }
   if(logVis.length){
     box.appendChild(groupLabel('Completed · '+logVis.length));
     logVis.slice(0,50).forEach(({e,i})=>{
@@ -567,9 +590,8 @@ function renderStats(){
 }
 function paint(){
   paintAuto(); renderSurfaceToggle(); renderStats();
-  const cp=$('calPane'); cp.innerHTML=''; calendarSurface(cp);
-  const lp=$('listPane'); lp.innerHTML=''; listSurface(lp);
-  $('layout').dataset.surface=surface;
+  const box=$('surface'); box.innerHTML='';
+  if(surface==='calendar') calendarSurface(box); else listSurface(box);
   if(pendingFocus && pendingFocus.indexOf('add:')===0){ const id=pendingFocus.slice(4); const all=document.querySelectorAll('[data-add="'+id+'"]'); for(const f of all){ if(f.offsetParent!==null){ f.focus(); break; } } pendingFocus=null; }
 }
 
