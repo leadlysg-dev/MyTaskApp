@@ -229,6 +229,36 @@
   .resort:disabled{opacity:.6;}
   .resort .spin{border-color:rgba(255,255,255,.3); border-top-color:#fff;}
   .divider{height:1px; background:var(--line); margin:20px 0;}
+
+  /* GYM */
+  .gymform{background:var(--card); border:1.5px solid var(--line); border-radius:16px; padding:12px; margin-bottom:6px;}
+  .gymrow{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
+  .gymrow.triple{gap:6px;}
+  .gymrow:last-child{margin-bottom:0;}
+  .gymlab{font-size:11px; letter-spacing:.06em; text-transform:uppercase; font-weight:600; color:var(--muted); width:80px; flex-shrink:0;}
+  .gymcell{flex:1; display:flex; flex-direction:column;}
+  .gymcell .gymlab{width:auto; margin-bottom:3px; display:block;}
+  .gyminput{flex:1; width:100%; font-family:inherit; font-size:16px; padding:11px 12px; border:1.5px solid var(--line); border-radius:11px; background:var(--bg); color:var(--ink);}
+  .gyminput:focus{outline:none; border-color:var(--ink);}
+  select.gyminput{cursor:pointer;}
+  .gymhint{font-size:12px; color:var(--leadly); margin:0 2px 8px; font-weight:600;}
+  .gymlog{width:100%; font-family:inherit; font-size:15px; font-weight:600; color:var(--cream); background:var(--ink); border:none; border-radius:12px; padding:13px; cursor:pointer; margin-top:4px;}
+  .gymlog:active{transform:scale(.99);}
+  .gymcard{background:var(--card); border:1.5px solid var(--line); border-radius:16px; padding:12px; margin-bottom:8px;}
+  .gymcardhead{font-family:'Bricolage Grotesque',sans-serif; font-weight:700; font-size:15px; margin-bottom:6px;}
+  .gymex{display:flex; align-items:center; gap:10px; padding:9px 0; border-top:1px solid var(--line);}
+  .gymex.first{border-top:none;}
+  .gymexL{flex:1; min-width:0;}
+  .gymexname{font-size:14px; font-weight:500;}
+  .gymextarget{font-size:12px; color:var(--muted); margin-top:1px;}
+  .gympick{font-family:inherit; font-size:12px; font-weight:600; color:var(--ink); background:var(--cream); border:1.5px solid var(--line); border-radius:10px; padding:7px 11px; cursor:pointer; flex-shrink:0;}
+  .gympick:hover{border-color:var(--ink);}
+  .histrow{display:flex; align-items:center; gap:8px; background:var(--card); border:1.5px solid var(--line); border-radius:11px; padding:9px 11px; margin-bottom:6px;}
+  .histmain{flex:1; min-width:0;}
+  .histex{font-size:14px; font-weight:500;}
+  .histdetail{font-size:12.5px; color:var(--muted); margin-top:2px; word-break:break-word;}
+  .histdel{background:none; border:none; color:var(--muted); cursor:pointer; font-size:18px; padding:2px 6px; border-radius:7px; flex-shrink:0;}
+  .histdel:hover{color:var(--red); background:var(--bg);}
 </style>
 </head>
 <body>
@@ -245,13 +275,15 @@
     </div>
   </div>
 
-  <div class="dump"><input id="input" type="text" placeholder="Type anything…" autocomplete="off" /><button id="addBtn">+</button></div>
+  <div class="seg" id="pageNav"></div>
+
+  <div class="dump" id="dumpRow"><input id="input" type="text" placeholder="Type anything…" autocomplete="off" /><button id="addBtn">+</button></div>
   <div class="autoline" id="autoline"></div>
 
   <div class="statsbar" id="statsBar"></div>
   <div class="seg" id="surfaceToggle"></div>
   <div id="surface"><div class="loading">Loading…</div></div>
-  <div class="build">build v17 · responsive · browser + iOS app · direct Sheets sync</div>
+  <div class="build">build v18 · tasks + gym · direct Sheets sync</div>
 </div>
 
 <!-- SETTINGS -->
@@ -276,8 +308,29 @@
 const API='/.netlify/functions';
 const LS='todo-cache-v3', UI='cc-ui-v3';
 const CATS=['Personal','Leadly','School'];
+const ROUTINE=[
+  {day:'Day 1', items:[
+    {ex:'Leg press', t:'3 × 10–12'},
+    {ex:'Chest press', t:'3 × 8–12'},
+    {ex:'Seated cable row', t:'3 × 10–12'},
+    {ex:'Cable woodchop', t:'3 × 10–12 / side'},
+  ]},
+  {day:'Day 2', items:[
+    {ex:'Goblet / box squat', t:'3 × 8–12'},
+    {ex:'Lat pulldown', t:'3 × 10–12'},
+    {ex:'Seated leg curl', t:'3 × 10–12'},
+    {ex:'Incline chest press', t:'2 × 10–12'},
+  ]},
+  {day:'Day 3', items:[
+    {ex:'Cable glute kickback', t:'3 × 12–15 / leg'},
+    {ex:'Chest-supported row', t:'3 × 10–12'},
+    {ex:'Leg extension', t:'2 × 12–15'},
+    {ex:'DB / machine chest press', t:'2 × 10–12'},
+  ]},
+];
+let gymForm={ date:'', exercise:'', weight:'', reps:'', sets:'', notes:'' };
 const FALLBACK_WEATHER={temp:19,emoji:'☀️',desc:'Sunny'};
-let state={ pinned:'', glossary:[], context:'', tasks:[], log:[] };
+let state={ pinned:'', glossary:[], context:'', tasks:[], log:[], workouts:[] };
 let surface='calendar', view='day', filter='All', isSorting=false;
 let expanded=new Set(); let pendingFocus=null;
 let focus=new Date(); focus.setHours(0,0,0,0);
@@ -332,16 +385,16 @@ async function loadWeather(){
 function setSync(s){ const cls = s==='offline' ? 'offline' : (s==='synced'||s==='saving') ? 'synced' : ''; $('sync').className='dotlight '+cls; }
 
 /* UI prefs */
-function loadUI(){ try{ const u=JSON.parse(localStorage.getItem(UI)||'{}'); if(u.surface) surface=u.surface; if(u.view) view=u.view; if(u.filter) filter=u.filter; }catch(e){} }
-function saveUI(){ try{ localStorage.setItem(UI,JSON.stringify({surface,view,filter})); }catch(e){} }
+function loadUI(){ try{ const u=JSON.parse(localStorage.getItem(UI)||'{}'); if(u.page) page=u.page; if(u.surface) surface=u.surface; if(u.view) view=u.view; if(u.filter) filter=u.filter; }catch(e){} }
+function saveUI(){ try{ localStorage.setItem(UI,JSON.stringify({page,surface,view,filter})); }catch(e){} }
 
 /* storage */
-function norm(s){ s.pinned=s.pinned||''; s.context=s.context||''; s.glossary=Array.isArray(s.glossary)?s.glossary:[]; s.tasks=Array.isArray(s.tasks)?s.tasks:[]; s.log=Array.isArray(s.log)?s.log:[]; return s; }
+function norm(s){ s.pinned=s.pinned||''; s.context=s.context||''; s.glossary=Array.isArray(s.glossary)?s.glossary:[]; s.tasks=Array.isArray(s.tasks)?s.tasks:[]; s.log=Array.isArray(s.log)?s.log:[]; s.workouts=Array.isArray(s.workouts)?s.workouts:[]; return s; }
 function cacheLoad(){ try{ const s=localStorage.getItem(LS); if(s) state=norm(JSON.parse(s)); }catch(e){} }
 function cacheSave(){ try{ localStorage.setItem(LS,JSON.stringify(state)); }catch(e){} }
 async function remoteLoad(){
   try{ const r=await fetch(API+'/tasks'); if(!r.ok) throw 0; const d=await r.json();
-    state=norm({ pinned:d.pinned, context:d.context, glossary:d.glossary, log:d.log, tasks:(d.tasks||[]).map(t=>({...t,dueDate:t.dueDate||''})) });
+    state=norm({ pinned:d.pinned, context:d.context, glossary:d.glossary, log:d.log, workouts:d.workouts, tasks:(d.tasks||[]).map(t=>({...t,dueDate:t.dueDate||''})) });
     cacheSave(); paint(); setSync('synced');
   }catch(e){ setSync('offline'); }
 }
@@ -588,9 +641,115 @@ function renderStats(){
   [['Overdue',overdue,'over'],['Today',today,''],['This week',week,''],['Unscheduled',unsched,''],['Done today',doneToday,'done']]
     .forEach(([lab,n,cls])=>{ const s=el('div','stat'+(cls?' '+cls:'')); s.innerHTML='<span class="sn">'+n+'</span> '+lab; bar.appendChild(s); });
 }
+/* ===== GYM ===== */
+function allExercises(){ const s=[]; ROUTINE.forEach(d=>d.items.forEach(i=>{ if(!s.includes(i.ex)) s.push(i.ex); })); return s; }
+function dayForExercise(ex){ for(const d of ROUTINE){ if(d.items.some(i=>i.ex===ex)) return d.day; } return ''; }
+function lastWeight(ex){ const w=state.workouts.find(x=>x.exercise===ex && x.weight); return w? w.weight : ''; }
+function delWorkout(id){ state.workouts=state.workouts.filter(w=>String(w.id)!==String(id)); save(); paint(); }
+function logFromForm(){
+  const ex=(gymForm.exercise||'').trim();
+  if(!ex){ toast('Pick an exercise first'); return; }
+  const w={ id:Date.now()+'-'+Math.floor(Math.random()*1000), date:gymForm.date||TODAY_KEY, day:dayForExercise(ex),
+    exercise:ex, weight:(gymForm.weight||'').toString().trim(), reps:(gymForm.reps||'').toString().trim(),
+    sets:(gymForm.sets||'').toString().trim(), notes:(gymForm.notes||'').trim() };
+  state.workouts.unshift(w); save();
+  gymForm.weight=''; gymForm.reps=''; gymForm.sets=''; gymForm.notes='';
+  toast('Logged '+ex+' ✓'); paint();
+}
+function prettyDate(k){ if(!k) return '—'; const [y,m,d]=k.split('-').map(Number); const dt=new Date(y,m-1,d);
+  if(k===TODAY_KEY) return 'Today'; if(k===key(addDays(new Date(),-1))) return 'Yesterday';
+  return dt.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}); }
+function eyebrowEl(t){ const d=el('div','eyebrow'); d.style.marginTop='16px'; d.textContent=t; return d; }
+
+function gymSurface(box){
+  if(!gymForm.date) gymForm.date=TODAY_KEY;
+
+  /* quick-log form */
+  box.appendChild(eyebrowEl('Log a set'));
+  const form=el('div','gymform');
+
+  const drow=el('div','gymrow');
+  const dlab=el('label','gymlab'); dlab.textContent='Date';
+  const di=el('input'); di.type='date'; di.className='gyminput'; di.value=gymForm.date; di.oninput=()=>{ gymForm.date=di.value; };
+  drow.append(dlab,di); form.appendChild(drow);
+
+  const erow=el('div','gymrow');
+  const elab=el('label','gymlab'); elab.textContent='Exercise';
+  const sel=el('select'); sel.className='gyminput';
+  const ph=el('option'); ph.value=''; ph.textContent='Choose…'; sel.appendChild(ph);
+  const base=allExercises();
+  base.forEach(x=>{ const o=el('option'); o.value=x; o.textContent=x; if(gymForm.exercise===x)o.selected=true; sel.appendChild(o); });
+  [...new Set(state.workouts.map(w=>w.exercise).filter(x=>x && !base.includes(x)))].forEach(x=>{ const o=el('option'); o.value=x; o.textContent=x; if(gymForm.exercise===x)o.selected=true; sel.appendChild(o); });
+  const oo=el('option'); oo.value='__other'; oo.textContent='Other…'; sel.appendChild(oo);
+  sel.onchange=()=>{ if(sel.value==='__other'){ const v=prompt('Exercise name'); gymForm.exercise=v?v.trim():''; } else { gymForm.exercise=sel.value; } paint(); };
+  erow.append(elab,sel); form.appendChild(erow);
+
+  const trow=el('div','gymrow triple');
+  const mk=(lab,k,p)=>{ const wrap=el('div','gymcell'); const l=el('label','gymlab'); l.textContent=lab; const inp=el('input'); inp.type='number'; inp.inputMode='decimal'; inp.className='gyminput'; inp.placeholder=p; inp.value=gymForm[k]; inp.oninput=()=>{ gymForm[k]=inp.value; }; wrap.append(l,inp); return wrap; };
+  trow.append(mk('Weight (kg)','weight','0'), mk('Reps','reps','0'), mk('Sets','sets','0'));
+  form.appendChild(trow);
+
+  if(gymForm.exercise){ const lw=lastWeight(gymForm.exercise); if(lw){ const h=el('div','gymhint'); h.textContent='Last time: '+lw+' kg'; form.appendChild(h); } }
+
+  const nrow=el('div','gymrow');
+  const ni=el('input'); ni.type='text'; ni.className='gyminput'; ni.placeholder='Notes (optional)'; ni.value=gymForm.notes; ni.oninput=()=>{ gymForm.notes=ni.value; };
+  nrow.appendChild(ni); form.appendChild(nrow);
+
+  const btn=el('button','gymlog'); btn.textContent='＋ Log set'; btn.onclick=logFromForm; form.appendChild(btn);
+  box.appendChild(form);
+
+  /* routine reference */
+  box.appendChild(eyebrowEl('Your 3-day plan'));
+  ROUTINE.forEach(d=>{
+    const card=el('div','gymcard');
+    const h=el('div','gymcardhead'); h.textContent=d.day; card.appendChild(h);
+    d.items.forEach((it,idx)=>{
+      const r=el('div','gymex'+(idx===0?' first':''));
+      const left=el('div','gymexL');
+      const nm=el('div','gymexname'); nm.textContent=it.ex;
+      const tg=el('div','gymextarget'); tg.textContent=it.t; left.append(nm,tg);
+      const lw=lastWeight(it.ex);
+      const pick=el('button','gympick'); pick.textContent= lw? lw+' kg ›' : 'Log ›'; pick.title='Log this exercise';
+      pick.onclick=()=>{ gymForm.exercise=it.ex; paint(); try{ window.scrollTo({top:0,behavior:'smooth'}); }catch(_){} };
+      r.append(left,pick); card.appendChild(r);
+    });
+    box.appendChild(card);
+  });
+
+  /* history */
+  const hist=state.workouts.slice();
+  box.appendChild(eyebrowEl('History · '+hist.length));
+  if(!hist.length){ const e=el('div','empty'); e.innerHTML='<span class="big">🏋️</span>No sets logged yet.<br>Pick an exercise above and log your first set.'; box.appendChild(e); return; }
+  const groups={}; hist.forEach(w=>{ (groups[w.date]=groups[w.date]||[]).push(w); });
+  Object.keys(groups).sort((a,b)=>String(b).localeCompare(String(a))).forEach(date=>{
+    box.appendChild(groupLabel(prettyDate(date)));
+    groups[date].forEach(w=>{
+      const row=el('div','histrow');
+      const main=el('div','histmain');
+      const nm=el('div','histex'); nm.textContent=w.exercise;
+      const parts=[]; if(w.weight)parts.push(w.weight+' kg'); if(w.reps)parts.push(w.reps+' reps'); if(w.sets)parts.push(w.sets+' sets');
+      const dt=el('div','histdetail'); dt.textContent=parts.join(' · ')+(w.notes?' — '+w.notes:'');
+      main.append(nm,dt);
+      const rm=el('button','histdel'); rm.innerHTML='×'; rm.title='Delete'; rm.onclick=()=>delWorkout(w.id);
+      row.append(main,rm); box.appendChild(row);
+    });
+  });
+}
+
+function renderPageNav(){ const n=$('pageNav'); if(!n) return; n.innerHTML='';
+  [['task','✓ Tasks'],['gym','🏋 Gym']].forEach(([k,lab])=>{ const b=el('button',page===k?'active':''); b.textContent=lab; b.onclick=()=>{ page=k; saveUI(); paint(); }; n.appendChild(b); });
+}
+
 function paint(){
-  paintAuto(); renderSurfaceToggle(); renderStats();
+  renderPageNav();
+  const gym = page==='gym';
+  $('dumpRow').style.display = gym?'none':'';
+  $('autoline').style.display = gym?'none':'';
+  $('statsBar').style.display = gym?'none':'';
+  $('surfaceToggle').style.display = gym?'none':'';
   const box=$('surface'); box.innerHTML='';
+  if(gym){ gymSurface(box); return; }
+  paintAuto(); renderSurfaceToggle(); renderStats();
   if(surface==='calendar') calendarSurface(box); else listSurface(box);
   if(pendingFocus && pendingFocus.indexOf('add:')===0){ const id=pendingFocus.slice(4); const all=document.querySelectorAll('[data-add="'+id+'"]'); for(const f of all){ if(f.offsetParent!==null){ f.focus(); break; } } pendingFocus=null; }
 }

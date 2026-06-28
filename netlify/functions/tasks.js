@@ -9,6 +9,7 @@ const { JWT } = require('google-auth-library');
 const SHEET_ID = process.env.GOOGLE_SHEET_ID || '';
 const TASK_HEADER = ['id', 'text', 'category', 'priority', 'done', 'dueDate', 'createdAt', 'details'];
 const LOG_HEADER = ['text', 'category', 'dueDate', 'completedAt'];
+const WORKOUT_HEADER = ['id', 'date', 'day', 'exercise', 'weight', 'reps', 'sets', 'notes'];
 
 async function getToken() {
   const jwt = new JWT({
@@ -71,7 +72,7 @@ exports.handler = async (event) => {
 
   try {
     const token = await getToken();
-    await ensureTabs(token, ['Tasks', 'Meta', 'Log']);
+    await ensureTabs(token, ['Tasks', 'Meta', 'Log', 'Workouts']);
 
     if (event.httpMethod === 'GET') {
       const tasks = rowsToObjs(await readTab(token, 'Tasks'), TASK_HEADER).filter(o => o.id).map(o => ({
@@ -85,16 +86,23 @@ exports.handler = async (event) => {
       const log = rowsToObjs(await readTab(token, 'Log'), LOG_HEADER).filter(o => o.text).map(o => ({
         text: o.text || '', category: o.category || '', dueDate: o.dueDate || '', completedAt: o.completedAt || ''
       }));
-      return json(200, { pinned: meta.pinned || '', context: meta.context || '', glossary, tasks, log });
+      const workouts = rowsToObjs(await readTab(token, 'Workouts'), WORKOUT_HEADER).filter(o => o.id).map(o => ({
+        id: o.id, date: o.date || '', day: o.day || '', exercise: o.exercise || '',
+        weight: o.weight || '', reps: o.reps || '', sets: o.sets || '', notes: o.notes || ''
+      }));
+      return json(200, { pinned: meta.pinned || '', context: meta.context || '', glossary, tasks, log, workouts });
     }
 
     if (event.httpMethod === 'POST') {
-      const { pinned = '', context = '', glossary = [], tasks = [], log = [] } = JSON.parse(event.body || '{}');
+      const { pinned = '', context = '', glossary = [], tasks = [], log = [], workouts = [] } = JSON.parse(event.body || '{}');
       await writeTab(token, 'Tasks', [TASK_HEADER].concat(tasks.map(t => [
         String(t.id), t.text || '', t.category || 'Unsorted', t.priority || 'medium', t.done ? 'true' : 'false', t.dueDate || '', t.createdAt || new Date().toISOString(), JSON.stringify(t.details || [])
       ])));
       await writeTab(token, 'Meta', [['key', 'value'], ['pinned', pinned], ['context', context], ['glossary', JSON.stringify(glossary || [])]]);
       await writeTab(token, 'Log', [LOG_HEADER].concat((log || []).map(e => [e.text || '', e.category || '', e.dueDate || '', e.completedAt || ''])));
+      await writeTab(token, 'Workouts', [WORKOUT_HEADER].concat((workouts || []).map(w => [
+        String(w.id), w.date || '', w.day || '', w.exercise || '', String(w.weight == null ? '' : w.weight), String(w.reps == null ? '' : w.reps), String(w.sets == null ? '' : w.sets), w.notes || ''
+      ])));
       return json(200, { ok: true, version: VERSION });
     }
     return { statusCode: 405, body: 'Method not allowed' };
