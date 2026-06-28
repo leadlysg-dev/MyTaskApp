@@ -259,6 +259,18 @@
   .histdetail{font-size:12.5px; color:var(--muted); margin-top:2px; word-break:break-word;}
   .histdel{background:none; border:none; color:var(--muted); cursor:pointer; font-size:18px; padding:2px 6px; border-radius:7px; flex-shrink:0;}
   .histdel:hover{color:var(--red); background:var(--bg);}
+  .exhead{margin-bottom:9px;}
+  .exweight{display:flex; align-items:center; gap:9px; margin-bottom:11px;}
+  .exweight .gymlab{width:auto; flex-shrink:0; margin:0;}
+  .exweight .gyminput{flex:0 1 120px; max-width:120px;}
+  .lasthint{font-size:12px; color:var(--muted); margin-left:auto;}
+  .setrow{display:flex; flex-wrap:wrap; gap:7px;}
+  .setbox{font-family:inherit; font-size:13px; font-weight:600; color:var(--muted); background:var(--bg); border:1.5px solid var(--line); border-radius:11px; padding:11px 13px; cursor:pointer; min-width:78px; text-align:center; transition:all .12s;}
+  .setbox:hover{border-color:var(--ink);}
+  .setbox:active{transform:scale(.96);}
+  .setbox.done{background:var(--ink); border-color:var(--ink); color:var(--cream);}
+  .setbox .setn{font-weight:600;}
+  .donecount{font-size:12px; color:var(--muted); margin-top:8px;}
 </style>
 </head>
 <body>
@@ -328,7 +340,7 @@ const ROUTINE=[
     {ex:'DB / machine chest press', t:'2 × 10–12'},
   ]},
 ];
-let gymForm={ date:'', exercise:'', weight:'', reps:'', sets:'', notes:'' };
+let gymDay='Day 1'; let gymWeightDraft={};
 const FALLBACK_WEATHER={temp:19,emoji:'☀️',desc:'Sunny'};
 let state={ pinned:'', glossary:[], context:'', tasks:[], log:[], workouts:[] };
 let page='task';
@@ -386,8 +398,8 @@ async function loadWeather(){
 function setSync(s){ const cls = s==='offline' ? 'offline' : (s==='synced'||s==='saving') ? 'synced' : ''; $('sync').className='dotlight '+cls; }
 
 /* UI prefs */
-function loadUI(){ try{ const u=JSON.parse(localStorage.getItem(UI)||'{}'); if(u.page) page=u.page; if(u.surface) surface=u.surface; if(u.view) view=u.view; if(u.filter) filter=u.filter; }catch(e){} }
-function saveUI(){ try{ localStorage.setItem(UI,JSON.stringify({page,surface,view,filter})); }catch(e){} }
+function loadUI(){ try{ const u=JSON.parse(localStorage.getItem(UI)||'{}'); if(u.page) page=u.page; if(u.gymDay) gymDay=u.gymDay; if(u.surface) surface=u.surface; if(u.view) view=u.view; if(u.filter) filter=u.filter; }catch(e){} }
+function saveUI(){ try{ localStorage.setItem(UI,JSON.stringify({page,gymDay,surface,view,filter})); }catch(e){} }
 
 /* storage */
 function norm(s){ s.pinned=s.pinned||''; s.context=s.context||''; s.glossary=Array.isArray(s.glossary)?s.glossary:[]; s.tasks=Array.isArray(s.tasks)?s.tasks:[]; s.log=Array.isArray(s.log)?s.log:[]; s.workouts=Array.isArray(s.workouts)?s.workouts:[]; return s; }
@@ -643,95 +655,80 @@ function renderStats(){
     .forEach(([lab,n,cls])=>{ const s=el('div','stat'+(cls?' '+cls:'')); s.innerHTML='<span class="sn">'+n+'</span> '+lab; bar.appendChild(s); });
 }
 /* ===== GYM ===== */
-function allExercises(){ const s=[]; ROUTINE.forEach(d=>d.items.forEach(i=>{ if(!s.includes(i.ex)) s.push(i.ex); })); return s; }
-function dayForExercise(ex){ for(const d of ROUTINE){ if(d.items.some(i=>i.ex===ex)) return d.day; } return ''; }
-function lastWeight(ex){ const w=state.workouts.find(x=>x.exercise===ex && x.weight); return w? w.weight : ''; }
-function delWorkout(id){ state.workouts=state.workouts.filter(w=>String(w.id)!==String(id)); save(); paint(); }
-function logFromForm(){
-  const ex=(gymForm.exercise||'').trim();
-  if(!ex){ toast('Pick an exercise first'); return; }
-  const w={ id:Date.now()+'-'+Math.floor(Math.random()*1000), date:gymForm.date||TODAY_KEY, day:dayForExercise(ex),
-    exercise:ex, weight:(gymForm.weight||'').toString().trim(), reps:(gymForm.reps||'').toString().trim(),
-    sets:(gymForm.sets||'').toString().trim(), notes:(gymForm.notes||'').trim() };
-  state.workouts.unshift(w); save();
-  gymForm.weight=''; gymForm.reps=''; gymForm.sets=''; gymForm.notes='';
-  toast('Logged '+ex+' ✓'); paint();
+function setsForTarget(t){ const m=String(t).match(/^\s*(\d+)/); return m? Math.max(1,Math.min(10,parseInt(m[1],10))) : 3; }
+function dayItems(dayName){ const d=ROUTINE.find(d=>d.day===dayName); return d? d.items : ROUTINE[0].items; }
+function setRecord(ex,set){ return state.workouts.find(w=>w.date===TODAY_KEY && w.day===gymDay && w.exercise===ex && String(w.set)===String(set)); }
+function isSetDone(ex,set){ return !!setRecord(ex,set); }
+function todayWeight(ex){ const w=state.workouts.find(x=>x.date===TODAY_KEY && x.day===gymDay && x.exercise===ex && x.weight); if(w) return w.weight; return gymWeightDraft[ex]!=null? gymWeightDraft[ex] : ''; }
+function setExerciseWeight(ex,val){ gymWeightDraft[ex]=val; state.workouts.forEach(w=>{ if(w.date===TODAY_KEY && w.day===gymDay && w.exercise===ex) w.weight=val; }); save(); }
+function toggleSet(ex,set){ const r=setRecord(ex,set);
+  if(r){ state.workouts=state.workouts.filter(w=>w!==r); }
+  else { state.workouts.unshift({ id:Date.now()+'-'+Math.floor(Math.random()*1000), date:TODAY_KEY, day:gymDay, exercise:ex, set:set, weight:(todayWeight(ex)||'').toString().trim() }); }
+  save(); paint();
 }
+function lastWeight(ex){ const w=state.workouts.find(x=>x.exercise===ex && x.date!==TODAY_KEY && x.weight); return w? w.weight : ''; }
 function prettyDate(k){ if(!k) return '—'; const [y,m,d]=k.split('-').map(Number); const dt=new Date(y,m-1,d);
   if(k===TODAY_KEY) return 'Today'; if(k===key(addDays(new Date(),-1))) return 'Yesterday';
   return dt.toLocaleDateString(undefined,{weekday:'short',day:'numeric',month:'short'}); }
 function eyebrowEl(t){ const d=el('div','eyebrow'); d.style.marginTop='16px'; d.textContent=t; return d; }
 
 function gymSurface(box){
-  if(!gymForm.date) gymForm.date=TODAY_KEY;
+  /* fixed day picker */
+  box.appendChild(eyebrowEl('Today · '+prettyDate(TODAY_KEY)));
+  const dayseg=el('div','seg');
+  ROUTINE.forEach(d=>{ const b=el('button',gymDay===d.day?'active':''); b.textContent=d.day; b.onclick=()=>{ gymDay=d.day; saveUI(); paint(); }; dayseg.appendChild(b); });
+  box.appendChild(dayseg);
 
-  /* quick-log form */
-  box.appendChild(eyebrowEl('Log a set'));
-  const form=el('div','gymform');
-
-  const drow=el('div','gymrow');
-  const dlab=el('label','gymlab'); dlab.textContent='Date';
-  const di=el('input'); di.type='date'; di.className='gyminput'; di.value=gymForm.date; di.oninput=()=>{ gymForm.date=di.value; };
-  drow.append(dlab,di); form.appendChild(drow);
-
-  const erow=el('div','gymrow');
-  const elab=el('label','gymlab'); elab.textContent='Exercise';
-  const sel=el('select'); sel.className='gyminput';
-  const ph=el('option'); ph.value=''; ph.textContent='Choose…'; sel.appendChild(ph);
-  const base=allExercises();
-  base.forEach(x=>{ const o=el('option'); o.value=x; o.textContent=x; if(gymForm.exercise===x)o.selected=true; sel.appendChild(o); });
-  [...new Set(state.workouts.map(w=>w.exercise).filter(x=>x && !base.includes(x)))].forEach(x=>{ const o=el('option'); o.value=x; o.textContent=x; if(gymForm.exercise===x)o.selected=true; sel.appendChild(o); });
-  const oo=el('option'); oo.value='__other'; oo.textContent='Other…'; sel.appendChild(oo);
-  sel.onchange=()=>{ if(sel.value==='__other'){ const v=prompt('Exercise name'); gymForm.exercise=v?v.trim():''; } else { gymForm.exercise=sel.value; } paint(); };
-  erow.append(elab,sel); form.appendChild(erow);
-
-  const trow=el('div','gymrow triple');
-  const mk=(lab,k,p)=>{ const wrap=el('div','gymcell'); const l=el('label','gymlab'); l.textContent=lab; const inp=el('input'); inp.type='number'; inp.inputMode='decimal'; inp.className='gyminput'; inp.placeholder=p; inp.value=gymForm[k]; inp.oninput=()=>{ gymForm[k]=inp.value; }; wrap.append(l,inp); return wrap; };
-  trow.append(mk('Weight (kg)','weight','0'), mk('Reps','reps','0'), mk('Sets','sets','0'));
-  form.appendChild(trow);
-
-  if(gymForm.exercise){ const lw=lastWeight(gymForm.exercise); if(lw){ const h=el('div','gymhint'); h.textContent='Last time: '+lw+' kg'; form.appendChild(h); } }
-
-  const nrow=el('div','gymrow');
-  const ni=el('input'); ni.type='text'; ni.className='gyminput'; ni.placeholder='Notes (optional)'; ni.value=gymForm.notes; ni.oninput=()=>{ gymForm.notes=ni.value; };
-  nrow.appendChild(ni); form.appendChild(nrow);
-
-  const btn=el('button','gymlog'); btn.textContent='＋ Log set'; btn.onclick=logFromForm; form.appendChild(btn);
-  box.appendChild(form);
-
-  /* routine reference */
-  box.appendChild(eyebrowEl('Your 3-day plan'));
-  ROUTINE.forEach(d=>{
+  /* fixed exercises — tap each set, weight only */
+  dayItems(gymDay).forEach(it=>{
+    const n=setsForTarget(it.t);
     const card=el('div','gymcard');
-    const h=el('div','gymcardhead'); h.textContent=d.day; card.appendChild(h);
-    d.items.forEach((it,idx)=>{
-      const r=el('div','gymex'+(idx===0?' first':''));
-      const left=el('div','gymexL');
-      const nm=el('div','gymexname'); nm.textContent=it.ex;
-      const tg=el('div','gymextarget'); tg.textContent=it.t; left.append(nm,tg);
-      const lw=lastWeight(it.ex);
-      const pick=el('button','gympick'); pick.textContent= lw? lw+' kg ›' : 'Log ›'; pick.title='Log this exercise';
-      pick.onclick=()=>{ gymForm.exercise=it.ex; paint(); try{ window.scrollTo({top:0,behavior:'smooth'}); }catch(_){} };
-      r.append(left,pick); card.appendChild(r);
-    });
+    const head=el('div','exhead');
+    const nm=el('div','gymexname'); nm.textContent=it.ex;
+    const tg=el('div','gymextarget'); tg.textContent=it.t;
+    head.append(nm,tg); card.appendChild(head);
+
+    /* the only input: weight */
+    const wrow=el('div','exweight');
+    const wl=el('label','gymlab'); wl.textContent='Weight (kg)';
+    const wi=el('input'); wi.type='number'; wi.inputMode='decimal'; wi.className='gyminput'; wi.placeholder='—'; wi.value=todayWeight(it.ex);
+    wi.oninput=()=>{ setExerciseWeight(it.ex, wi.value); };
+    wrow.append(wl,wi);
+    const lw=lastWeight(it.ex); if(lw){ const h=el('span','lasthint'); h.textContent='last '+lw+' kg'; wrow.appendChild(h); }
+    card.appendChild(wrow);
+
+    /* one checkbox per set */
+    let doneCount=0;
+    const srow=el('div','setrow');
+    for(let k=1;k<=n;k++){
+      const on=isSetDone(it.ex,k); if(on) doneCount++;
+      const b=el('button','setbox'+(on?' done':''));
+      b.innerHTML=(on?'✓ ':'')+'<span class="setn">Set '+k+'</span>';
+      b.onclick=()=>toggleSet(it.ex,k);
+      srow.appendChild(b);
+    }
+    card.appendChild(srow);
+    const dc=el('div','donecount'); dc.textContent=doneCount+' / '+n+' sets done'; card.appendChild(dc);
     box.appendChild(card);
   });
 
   /* history */
-  const hist=state.workouts.slice();
-  box.appendChild(eyebrowEl('History · '+hist.length));
-  if(!hist.length){ const e=el('div','empty'); e.innerHTML='<span class="big">🏋️</span>No sets logged yet.<br>Pick an exercise above and log your first set.'; box.appendChild(e); return; }
-  const groups={}; hist.forEach(w=>{ (groups[w.date]=groups[w.date]||[]).push(w); });
-  Object.keys(groups).sort((a,b)=>String(b).localeCompare(String(a))).forEach(date=>{
+  const hist=state.workouts.filter(w=>w.set!=null && w.set!=='');
+  box.appendChild(eyebrowEl('History'));
+  if(!hist.length){ const e=el('div','empty'); e.innerHTML='<span class="big">🏋️</span>No sets logged yet.<br>Tap a set above to start.'; box.appendChild(e); return; }
+  const byDate={}; hist.forEach(w=>{ (byDate[w.date]=byDate[w.date]||[]).push(w); });
+  Object.keys(byDate).sort((a,b)=>String(b).localeCompare(String(a))).forEach(date=>{
     box.appendChild(groupLabel(prettyDate(date)));
-    groups[date].forEach(w=>{
+    const m={}; byDate[date].forEach(w=>{ const kx=(w.day||'')+'||'+w.exercise; (m[kx]=m[kx]||[]).push(w); });
+    Object.keys(m).forEach(kx=>{
+      const arr=m[kx]; const [day,ex]=kx.split('||');
+      const w0=arr.find(x=>x.weight); const wt=w0? w0.weight : '';
       const row=el('div','histrow');
       const main=el('div','histmain');
-      const nm=el('div','histex'); nm.textContent=w.exercise;
-      const parts=[]; if(w.weight)parts.push(w.weight+' kg'); if(w.reps)parts.push(w.reps+' reps'); if(w.sets)parts.push(w.sets+' sets');
-      const dt=el('div','histdetail'); dt.textContent=parts.join(' · ')+(w.notes?' — '+w.notes:'');
-      main.append(nm,dt);
-      const rm=el('button','histdel'); rm.innerHTML='×'; rm.title='Delete'; rm.onclick=()=>delWorkout(w.id);
+      const exn=el('div','histex'); exn.textContent=ex;
+      const dt=el('div','histdetail'); dt.textContent=(day?day+' · ':'')+arr.length+' set'+(arr.length>1?'s':'')+(wt?' · '+wt+' kg':'');
+      main.append(exn,dt);
+      const rm=el('button','histdel'); rm.innerHTML='×'; rm.title='Remove these sets'; rm.onclick=()=>{ state.workouts=state.workouts.filter(w=>!(w.date===date && (w.day||'')===day && w.exercise===ex)); save(); paint(); };
       row.append(main,rm); box.appendChild(row);
     });
   });

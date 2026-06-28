@@ -9,7 +9,7 @@ const { JWT } = require('google-auth-library');
 const SHEET_ID = process.env.GOOGLE_SHEET_ID || '';
 const TASK_HEADER = ['id', 'text', 'category', 'priority', 'done', 'dueDate', 'createdAt', 'details'];
 const LOG_HEADER = ['text', 'category', 'dueDate', 'completedAt'];
-const WORKOUT_HEADER = ['id', 'date', 'day', 'exercise', 'weight', 'reps', 'sets', 'notes'];
+const WORKOUT_HEADER = ['id', 'date', 'day', 'exercise', 'set', 'weight'];
 
 async function getToken() {
   const jwt = new JWT({
@@ -88,7 +88,7 @@ exports.handler = async (event) => {
       }));
       const workouts = rowsToObjs(await readTab(token, 'Workouts'), WORKOUT_HEADER).filter(o => o.id).map(o => ({
         id: o.id, date: o.date || '', day: o.day || '', exercise: o.exercise || '',
-        weight: o.weight || '', reps: o.reps || '', sets: o.sets || '', notes: o.notes || ''
+        set: o.set || '', weight: o.weight || ''
       }));
       return json(200, { pinned: meta.pinned || '', context: meta.context || '', glossary, tasks, log, workouts });
     }
@@ -101,7 +101,7 @@ exports.handler = async (event) => {
       await writeTab(token, 'Meta', [['key', 'value'], ['pinned', pinned], ['context', context], ['glossary', JSON.stringify(glossary || [])]]);
       await writeTab(token, 'Log', [LOG_HEADER].concat((log || []).map(e => [e.text || '', e.category || '', e.dueDate || '', e.completedAt || ''])));
       await writeTab(token, 'Workouts', [WORKOUT_HEADER].concat((workouts || []).map(w => [
-        String(w.id), w.date || '', w.day || '', w.exercise || '', String(w.weight == null ? '' : w.weight), String(w.reps == null ? '' : w.reps), String(w.sets == null ? '' : w.sets), w.notes || ''
+        String(w.id), w.date || '', w.day || '', w.exercise || '', String(w.set == null ? '' : w.set), String(w.weight == null ? '' : w.weight)
       ])));
       return json(200, { ok: true, version: VERSION });
     }
