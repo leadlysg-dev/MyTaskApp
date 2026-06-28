@@ -331,6 +331,7 @@ const ROUTINE=[
 let gymForm={ date:'', exercise:'', weight:'', reps:'', sets:'', notes:'' };
 const FALLBACK_WEATHER={temp:19,emoji:'☀️',desc:'Sunny'};
 let state={ pinned:'', glossary:[], context:'', tasks:[], log:[], workouts:[] };
+let page='task';
 let surface='calendar', view='day', filter='All', isSorting=false;
 let expanded=new Set(); let pendingFocus=null;
 let focus=new Date(); focus.setHours(0,0,0,0);
